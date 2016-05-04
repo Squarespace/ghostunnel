@@ -85,7 +85,14 @@ func (p *proxy) accept() {
 			successCounter.Inc(1)
 			p.handlers.Add(1)
 			defer p.handlers.Done()
-			fuse(conn, backend)
+
+			// Proof-of-concept for protocol filtering.
+			if *serverFilterMemcache {
+				filter := NewMemcacheFilter(conn, backend)
+				filter.wrap()
+			} else {
+				fuse(conn, backend)
+			}
 		})
 	}
 }
@@ -125,12 +132,20 @@ func fuse(client, backend net.Conn) {
 	copyData(backend, client)
 }
 
+// Emit a header indicating a pipe was opened / closed
+func logPipeMsg(event string, left, right net.Conn) {
+	logger.Printf("%s pipe: %s:%s <- %s:%s",
+		event,
+		left.RemoteAddr().Network(), left.RemoteAddr().String(),
+		right.RemoteAddr().Network(), right.RemoteAddr().String())
+}
+
 // Copy data between two connections
 func copyData(dst net.Conn, src net.Conn) {
 	defer dst.Close()
 	defer src.Close()
-	defer logger.Printf("closed pipe: %s:%s <- %s:%s", dst.RemoteAddr().Network(), dst.RemoteAddr().String(), src.RemoteAddr().Network(), src.RemoteAddr().String())
-	logger.Printf("opening pipe: %s:%s <- %s:%s", dst.RemoteAddr().Network(), dst.RemoteAddr().String(), src.RemoteAddr().Network(), src.RemoteAddr().String())
+	defer logPipeMsg("closed", dst, src)
+	logPipeMsg("opening", dst, src)
 
 	_, err := io.Copy(dst, src)
 
